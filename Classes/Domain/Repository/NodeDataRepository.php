@@ -21,15 +21,10 @@ use Neos\Flow\Persistence\Repository;
 /**
  * @Flow\Scope("singleton")
  */
-class NodeDataRepository extends Repository
+class NodeDataRepository extends \Neos\ContentRepository\Domain\Repository\NodeDataRepository
 {
-    const ENTITY_CLASSNAME = NodeData::class;
 
-    /**
-     * @Flow\Inject
-     * @var ObjectManager
-     */
-    protected $entityManager;
+    const ENTITY_CLASSNAME = NodeData::class;
 
     /**
      * @param string $workspaceName
@@ -55,26 +50,4 @@ class NodeDataRepository extends Repository
         return $queryBuilder->getQuery()->iterate();
     }
 
-    /**
-     * Iterator over an IterableResult and return a Generator
-     *
-     * This method is useful for batch processing huge result set as it clear the object
-     * manager and detach the current object on each iteration.
-     *
-     * @param IterableResult $iterator
-     * @param callable $callback
-     * @return \Generator
-     */
-    public function iterate(IterableResult $iterator, callable $callback = null)
-    {
-        $iteration = 0;
-        foreach ($iterator as $object) {
-            $object = current($object);
-            yield $object;
-            if ($callback !== null) {
-                call_user_func($callback, $iteration, $object);
-            }
-            $iteration++;
-        }
-    }
 }
