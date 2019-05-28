@@ -63,7 +63,7 @@ If you use the [doctrine](https://packagist.org/packages/flownative/jobqueue-doc
 
 You can use this CLI command to process indexing job:
 
-    flow nodeindexqueue:work --queue batch
+    flow job:work Flowpack.ElasticSearch.ContentRepositoryQueueIndexer
 
 # Live Indexing
 
@@ -76,7 +76,7 @@ You can disable async live indexing by editing ```Settings.yaml```:
 
 You can use this CLI command to process indexing job:
 
-    flow nodeindexqueue:work --queue live
+    flow job:work Flowpack.ElasticSearch.ContentRepositoryQueueIndexer.Live
 
 # Supervisord configuration
 
