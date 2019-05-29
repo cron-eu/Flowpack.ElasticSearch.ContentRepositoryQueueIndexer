@@ -60,4 +60,25 @@ class NodeDataRepository extends \Neos\ContentRepository\Domain\Repository\NodeD
             ->iterate();
     }
 
+    /**
+     * @param string $workspaceName
+     *
+     * @return int
+     */
+    public function countBySiteAndWorkspace($workspaceName)
+    {
+        /** @var QueryBuilder $queryBuilder */
+        $queryBuilder = $this->entityManager->createQueryBuilder();
+
+        $queryBuilder->select('COUNT(n)')
+            ->from(NodeData::class, 'n')
+            ->where("n.workspace = :workspace AND n.removed = :removed AND n.movedTo IS NULL")
+            ->setParameters([
+                ':workspace' => $workspaceName,
+                ':removed' => false,
+            ]);
+        ;
+
+        return $queryBuilder->getQuery()->getSingleScalarResult();
+    }
 }

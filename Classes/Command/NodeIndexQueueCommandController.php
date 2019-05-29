@@ -238,38 +238,46 @@ class NodeIndexQueueCommandController extends CommandController
      */
     protected function indexWorkspace($workspaceName, $indexPostfix)
     {
-        $this->outputLine('<info>++</info> Indexing %s workspace', [$workspaceName]);
+        $this->outputLine('<info>++</info> Indexing %s workspace..', [$workspaceName]);
+        $this->outputLine();
+
+        $total = $this->nodeDataRepository->countBySiteAndWorkspace($workspaceName);
+        $this->output->progressStart($total);
+
         $nodeCounter = 0;
-        $offset = 0;
-        while (true) {
-            $iterator = $this->nodeDataRepository->findAllBySiteAndWorkspace($workspaceName, $offset, $this->batchSize);
+        $iterator = $this->nodeDataRepository->findAllBySiteAndWorkspace($workspaceName);
 
-            $jobData = [];
+        $jobData = [];
 
-            foreach ($this->nodeDataRepository->iterate($iterator) as $data) {
-                $jobData[] = [
-                    'persistenceObjectIdentifier' => $data['persistenceObjectIdentifier'],
-                    'identifier' => $data['identifier'],
-                    'dimensions' => $data['dimensions'],
-                    'workspace' => $workspaceName,
-                    'nodeType' => $data['nodeType'],
-                    'path' => $data['path'],
-                ];
-                $nodeCounter++;
-            }
-
-            if ($jobData === []) {
-                break;
-            }
-
+        $createBatch = function() use ($nodeCounter, $indexPostfix, $workspaceName, &$jobData) {
             $indexingJob = new IndexingJob($indexPostfix, $workspaceName, $jobData);
             $this->jobManager->queue(self::BATCH_QUEUE_NAME, $indexingJob);
-            $this->output('.');
-            $offset += $this->batchSize;
             $this->persistenceManager->clearState();
+            $this->output->progressAdvance(count($jobData));
+            $jobData = [];
+        };
+
+        foreach ($this->nodeDataRepository->iterate($iterator) as $data) {
+            $jobData[] = [
+                'persistenceObjectIdentifier' => $data['persistenceObjectIdentifier'],
+                'identifier' => $data['identifier'],
+                'dimensions' => $data['dimensions'],
+                'workspace' => $workspaceName,
+                'nodeType' => $data['nodeType'],
+                'path' => $data['path'],
+            ];
+            $nodeCounter++;
+            if ($nodeCounter % $this->batchSize === 0) {
+                $createBatch();
+            }
         }
+
+        if ($jobData) {
+            $createBatch();
+        }
+
+        $this->output->progressFinish();
         $this->outputLine();
-        $this->outputLine("\nNumber of Nodes to be indexed in workspace '%s': %d", [$workspaceName, $nodeCounter]);
         $this->outputLine();
     }
 
