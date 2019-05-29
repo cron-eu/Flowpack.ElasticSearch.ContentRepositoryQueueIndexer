@@ -32,7 +32,7 @@ class NodeDataRepository extends \Neos\ContentRepository\Domain\Repository\NodeD
      * @param integer $maxResults
      * @return IterableResult
      */
-    public function findAllBySiteAndWorkspace($workspaceName, $firstResult = 0, $maxResults = 1000)
+    public function findAllBySiteAndWorkspace($workspaceName, $firstResult = null, $maxResults = null)
     {
         /** @var QueryBuilder $queryBuilder */
         $queryBuilder = $this->entityManager->createQueryBuilder();
@@ -40,14 +40,24 @@ class NodeDataRepository extends \Neos\ContentRepository\Domain\Repository\NodeD
         $queryBuilder->select('n.Persistence_Object_Identifier persistenceObjectIdentifier, n.identifier identifier, n.dimensionValues dimensions, n.nodeType nodeType, n.path path')
             ->from(NodeData::class, 'n')
             ->where("n.workspace = :workspace AND n.removed = :removed AND n.movedTo IS NULL")
-            ->setFirstResult((integer)$firstResult)
-            ->setMaxResults((integer)$maxResults)
             ->setParameters([
                 ':workspace' => $workspaceName,
                 ':removed' => false,
             ]);
 
-        return $queryBuilder->getQuery()->iterate();
+        if ($firstResult !== null) {
+            $queryBuilder->setFirstResult((integer)$firstResult);
+        }
+
+        if ($maxResults !== null) {
+            $queryBuilder->setMaxResults((integer)$maxResults);
+        }
+
+        return $queryBuilder
+            ->getQuery()
+            ->useQueryCache(false)
+            ->useResultCache(false)
+            ->iterate();
     }
 
 }
