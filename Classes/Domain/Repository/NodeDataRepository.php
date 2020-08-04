@@ -21,15 +21,10 @@ use Neos\Flow\Persistence\Repository;
 /**
  * @Flow\Scope("singleton")
  */
-class NodeDataRepository extends Repository
+class NodeDataRepository extends \Neos\ContentRepository\Domain\Repository\NodeDataRepository
 {
-    const ENTITY_CLASSNAME = NodeData::class;
 
-    /**
-     * @Flow\Inject
-     * @var ObjectManager
-     */
-    protected $entityManager;
+    const ENTITY_CLASSNAME = NodeData::class;
 
     /**
      * @param string $workspaceName
@@ -37,7 +32,7 @@ class NodeDataRepository extends Repository
      * @param integer $maxResults
      * @return IterableResult
      */
-    public function findAllBySiteAndWorkspace($workspaceName, $firstResult = 0, $maxResults = 1000)
+    public function findAllBySiteAndWorkspace($workspaceName, $firstResult = null, $maxResults = null)
     {
         /** @var QueryBuilder $queryBuilder */
         $queryBuilder = $this->entityManager->createQueryBuilder();
@@ -45,36 +40,45 @@ class NodeDataRepository extends Repository
         $queryBuilder->select('n.Persistence_Object_Identifier persistenceObjectIdentifier, n.identifier identifier, n.dimensionValues dimensions, n.nodeType nodeType, n.path path')
             ->from(NodeData::class, 'n')
             ->where("n.workspace = :workspace AND n.removed = :removed AND n.movedTo IS NULL")
-            ->setFirstResult((integer)$firstResult)
-            ->setMaxResults((integer)$maxResults)
             ->setParameters([
                 ':workspace' => $workspaceName,
                 ':removed' => false,
             ]);
 
-        return $queryBuilder->getQuery()->iterate();
+        if ($firstResult !== null) {
+            $queryBuilder->setFirstResult((integer)$firstResult);
+        }
+
+        if ($maxResults !== null) {
+            $queryBuilder->setMaxResults((integer)$maxResults);
+        }
+
+        return $queryBuilder
+            ->getQuery()
+            ->useQueryCache(false)
+            ->useResultCache(false)
+            ->iterate();
     }
 
     /**
-     * Iterator over an IterableResult and return a Generator
+     * @param string $workspaceName
      *
-     * This method is useful for batch processing huge result set as it clear the object
-     * manager and detach the current object on each iteration.
-     *
-     * @param IterableResult $iterator
-     * @param callable $callback
-     * @return \Generator
+     * @return int
      */
-    public function iterate(IterableResult $iterator, callable $callback = null)
+    public function countBySiteAndWorkspace($workspaceName)
     {
-        $iteration = 0;
-        foreach ($iterator as $object) {
-            $object = current($object);
-            yield $object;
-            if ($callback !== null) {
-                call_user_func($callback, $iteration, $object);
-            }
-            $iteration++;
-        }
+        /** @var QueryBuilder $queryBuilder */
+        $queryBuilder = $this->entityManager->createQueryBuilder();
+
+        $queryBuilder->select('COUNT(n)')
+            ->from(NodeData::class, 'n')
+            ->where("n.workspace = :workspace AND n.removed = :removed AND n.movedTo IS NULL")
+            ->setParameters([
+                ':workspace' => $workspaceName,
+                ':removed' => false,
+            ]);
+        ;
+
+        return $queryBuilder->getQuery()->getSingleScalarResult();
     }
 }

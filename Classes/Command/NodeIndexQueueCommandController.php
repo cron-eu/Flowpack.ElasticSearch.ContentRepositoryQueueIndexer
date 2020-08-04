@@ -129,76 +129,6 @@ class NodeIndexQueueCommandController extends CommandController
     }
 
     /**
-     * @param string $queue Type of queue to process, can be "live" or "batch"
-     * @param int $exitAfter If set, this command will exit after the given amount of seconds
-     * @param int $limit If set, only the given amount of jobs are processed (successful or not) before the script exits
-     * @param bool $verbose Output debugging information
-     * @return void
-     * @throws \Neos\Flow\Mvc\Exception\StopActionException
-     */
-    public function workCommand($queue = 'batch', $exitAfter = null, $limit = null, $verbose = false)
-    {
-        $allowedQueues = [
-            'batch' => self::BATCH_QUEUE_NAME,
-            'live' => self::LIVE_QUEUE_NAME
-        ];
-        if (!isset($allowedQueues[$queue])) {
-            $this->output('Invalid queue, should be "live" or "batch"');
-        }
-        $queueName = $allowedQueues[$queue];
-
-        if ($verbose) {
-            $this->output('Watching queue <b>"%s"</b>', [$queueName]);
-            if ($exitAfter !== null) {
-                $this->output(' for <b>%d</b> seconds', [$exitAfter]);
-            }
-            $this->outputLine('...');
-        }
-
-        $startTime = time();
-        $timeout = null;
-        $numberOfJobExecutions = 0;
-
-        do {
-            $message = null;
-            if ($exitAfter !== null) {
-                $timeout = max(1, $exitAfter - (time() - $startTime));
-            }
-            try {
-                $message = $this->jobManager->waitAndExecute($queueName, $timeout);
-            } catch (Exception $exception) {
-                $numberOfJobExecutions++;
-                $this->outputLine('<error>%s</error>', [$exception->getMessage()]);
-                if ($verbose && $exception->getPrevious() instanceof \Exception) {
-                    $this->outputLine('  Reason: %s', [$exception->getPrevious()->getMessage()]);
-                }
-            } catch (\Exception $exception) {
-                $this->outputLine('<error>Unexpected exception during job execution: %s, aborting...</error>', [$exception->getMessage()]);
-                $this->quit(1);
-            }
-            if ($message !== null) {
-                $numberOfJobExecutions++;
-                if ($verbose) {
-                    $messagePayload = strlen($message->getPayload()) <= 50 ? $message->getPayload() : substr($message->getPayload(), 0, 50) . '...';
-                    $this->outputLine('<success>Successfully executed job "%s" (%s)</success>', [$message->getIdentifier(), $messagePayload]);
-                }
-            }
-            if ($exitAfter !== null && (time() - $startTime) >= $exitAfter) {
-                if ($verbose) {
-                    $this->outputLine('Quitting after %d seconds due to <i>--exit-after</i> flag', [time() - $startTime]);
-                }
-                $this->quit();
-            }
-            if ($limit !== null && $numberOfJobExecutions >= $limit) {
-                if ($verbose) {
-                    $this->outputLine('Quitting after %d executed job%s due to <i>--limit</i> flag', [$numberOfJobExecutions, $numberOfJobExecutions > 1 ? 's' : '']);
-                }
-                $this->quit();
-            }
-        } while (true);
-    }
-
-    /**
      * Flush the index queue
      */
     public function flushCommand()
@@ -238,38 +168,46 @@ class NodeIndexQueueCommandController extends CommandController
      */
     protected function indexWorkspace($workspaceName, $indexPostfix)
     {
-        $this->outputLine('<info>++</info> Indexing %s workspace', [$workspaceName]);
+        $this->outputLine('<info>++</info> Indexing %s workspace..', [$workspaceName]);
+        $this->outputLine();
+
+        $total = $this->nodeDataRepository->countBySiteAndWorkspace($workspaceName);
+        $this->output->progressStart($total);
+
         $nodeCounter = 0;
-        $offset = 0;
-        while (true) {
-            $iterator = $this->nodeDataRepository->findAllBySiteAndWorkspace($workspaceName, $offset, $this->batchSize);
+        $iterator = $this->nodeDataRepository->findAllBySiteAndWorkspace($workspaceName);
 
-            $jobData = [];
+        $jobData = [];
 
-            foreach ($this->nodeDataRepository->iterate($iterator) as $data) {
-                $jobData[] = [
-                    'persistenceObjectIdentifier' => $data['persistenceObjectIdentifier'],
-                    'identifier' => $data['identifier'],
-                    'dimensions' => $data['dimensions'],
-                    'workspace' => $workspaceName,
-                    'nodeType' => $data['nodeType'],
-                    'path' => $data['path'],
-                ];
-                $nodeCounter++;
-            }
-
-            if ($jobData === []) {
-                break;
-            }
-
+        $createBatch = function() use ($nodeCounter, $indexPostfix, $workspaceName, &$jobData) {
             $indexingJob = new IndexingJob($indexPostfix, $workspaceName, $jobData);
             $this->jobManager->queue(self::BATCH_QUEUE_NAME, $indexingJob);
-            $this->output('.');
-            $offset += $this->batchSize;
             $this->persistenceManager->clearState();
+            $this->output->progressAdvance(count($jobData));
+            $jobData = [];
+        };
+
+        foreach ($this->nodeDataRepository->iterate($iterator) as $data) {
+            $jobData[] = [
+                'persistenceObjectIdentifier' => $data['persistenceObjectIdentifier'],
+                'identifier' => $data['identifier'],
+                'dimensions' => $data['dimensions'],
+                'workspace' => $workspaceName,
+                'nodeType' => $data['nodeType'],
+                'path' => $data['path'],
+            ];
+            $nodeCounter++;
+            if ($nodeCounter % $this->batchSize === 0) {
+                $createBatch();
+            }
         }
+
+        if ($jobData) {
+            $createBatch();
+        }
+
+        $this->output->progressFinish();
         $this->outputLine();
-        $this->outputLine("\nNumber of Nodes to be indexed in workspace '%s': %d", [$workspaceName, $nodeCounter]);
         $this->outputLine();
     }
 
